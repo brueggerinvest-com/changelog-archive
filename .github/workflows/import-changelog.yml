@@ -1,0 +1,52 @@
+name: Import Daily Changelog from Google Drive
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '15 7 * * *' # runs daily at 07:15 UTC
+
+jobs:
+  import-changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
+
+      - name: Download latest changelog CSV from Google Drive
+        env:
+          GDRIVE_CREDS_JSON: ${{ secrets.GDRIVE_CREDS_JSON }}
+          GDRIVE_FILE_ID: ${{ secrets.GDRIVE_FILE_ID }}
+        run: |
+          echo "$GDRIVE_CREDS_JSON" > creds.json
+          python <<EOF
+          import os
+          from google.oauth2 import service_account
+          from googleapiclient.discovery import build
+
+          SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+          SERVICE_ACCOUNT_FILE = 'creds.json'
+          FILE_ID = os.environ['GDRIVE_FILE_ID']
+
+          creds = service_account.Credentials.from_service_account_file(
+              SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+          service = build('drive', 'v3', credentials=creds)
+          request = service.files().get_media(fileId=FILE_ID)
+          with open('changelog.csv', 'wb') as f:
+              f.write(request.execute())
+          EOF
+
+      - name: Commit and push changelog CSV
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add changelog.csv
+          git commit -m "Automated import of daily changelog CSV"
+          git push
